@@ -1,58 +1,47 @@
-# Meme — Solana meme coin scanner + paper trader
+# BTC / ETH / SOL futures bot — backtest + paper trading
 
-> **Paper trading only. No wallet, no private key, no real money.**
-> Run this for at least 1–2 weeks. Only consider live trading if results are clearly positive.
-> Most meme coins go to zero. Nothing here is financial advice.
+> **Paper trading only. No exchange account, no API keys, no real money.**
+> Most people who trade futures lose money. Leverage makes losses bigger. Nothing here is financial advice.
 
 ## What it does
-1. **Scan** – pulls new / trending Solana tokens from DexScreener (free, no API key).
-2. **Filter** – rejects coins with thin liquidity, low volume, tiny or huge market cap, brand-new launches,
-   more sellers than buyers, coins already pumped too hard or crashing.
-3. **Safety check** – RugCheck: rejects high risk scores, unlocked liquidity, and any "danger" flags
-   (mint authority, freeze authority, etc.).
-4. **Rank** – a simple momentum score (buy pressure, volume vs. liquidity, trend).
-5. **Paper trade** – "buys" **$20** of the top coins with fake money using real live prices,
-   including slippage + fees, then sells on take-profit / stop-loss / trailing stop / time limit.
-6. **Report** – win rate, total P&L, exit reasons.
+1. **Backtest:** downloads ~3 years of 4-hour price candles for BTC, ETH and SOL (free public data:
+   Binance → Bybit → GeckoTerminal as backups) and replays 3 strategies with realistic costs:
+   exchange fee 0.055% + slippage 0.02% per side, funding 0.01% per 8h on longs, stop-losses (including price gaps).
+   History is split: first 70% vs. the last 30% ("unseen") to catch strategies that only worked by luck.
+2. **Paper trade:** runs the chosen strategy on live prices with a fake $100 account. It can go **LONG** (profit when
+   price rises) or **SHORT** (profit when price falls).
 
-## Setup on Windows 10
-1. Install **Python 3.10+** from <https://www.python.org/downloads/> — tick **"Add Python to PATH"** during install.
-2. Install **Git** from <https://git-scm.com/download/win>.
-3. Open **Command Prompt** (Win key → type `cmd`) and run:
-   ```bat
-   git clone https://github.com/professorkaleab-code/Meme.git
-   cd Meme
-   git checkout claude/focused-cray-ighkt9
-   python -m venv venv
-   venv\Scripts\activate
-   pip install -r requirements.txt
-   ```
+## Strategies
+| Name | Idea |
+|---|---|
+| `donchian` | Breakout: go long on a new 20-candle high, short on a new 20-candle low (with 200-EMA trend filter) |
+| `ema_trend` | Trend following: long when the 20 EMA > 50 EMA and price above the 200 EMA; short the opposite |
+| `rsi_dip` | Buy oversold dips in an uptrend / short overbought rallies in a downtrend |
+
+## Risk rules (all in `config.py`)
+- Each trade risks **2% of the account** if its stop-loss is hit (~$2 on $100)
+- Stop-loss = 2.5 × ATR (average candle size), trailing as price moves your way
+- Max **3x** leverage, max 6% loss per day, one position per coin
+
+## Setup on Windows
+```bat
+cd Meme
+git pull
+venv\Scripts\activate
+pip install -r requirements.txt
+```
 
 ## Usage
-Each time you open a new Command Prompt: `cd Meme` then `venv\Scripts\activate`.
-
 | Command | What it does |
 |---|---|
-| `python main.py scan` | Show coins passing all filters right now |
-| `python main.py scan -v` | Also show why every other coin was rejected |
-| `python main.py paper` | Run the paper trader (checks every 60s). **Ctrl+C** to stop — progress is saved |
-| `python main.py report` | Show results |
-| `python main.py reset` | Wipe paper account and start over |
+| `python main.py backtest` | Test all strategies on ~3 years of history (first run downloads data, ~1 min) |
+| `python main.py backtest --tf 1h` | Same on 1-hour candles |
+| `python main.py paper` | Paper trade live (Ctrl+C to stop, progress saved) |
+| `python main.py report` | Show paper results |
+| `python main.py reset` | Wipe the paper account |
 
-Leave `python main.py paper` running (keep the window open, stop your PC from sleeping) for days to collect results.
-Trades are saved in `data\trades.csv` — open it in Excel, or share it with Claude to analyze and tune the strategy.
+To change the strategy, open `config.py` in Notepad and edit `STRATEGY = "..."`.
 
-## Settings
-Everything is in **`config.py`**: trade size ($20), starting balance ($100), max 3 open positions,
-$40 daily loss limit, +50% take profit, −25% stop loss, trailing stop, 6h max hold, and all filter thresholds.
-
-## Results log
-- **v1 (first day):** 30 trades, 37% win rate, **−$51.88 (−52%)**. Losses were bigger than wins, stop-losses
-  filled at −27% to −35% (and one −97%) because prices were only checked every 60s, and many buys chased coins that had already pumped.
-- **v2:** checks held coins every 15s, stricter entry filters (no chasing pumps, more liquidity, older coins,
-  stronger buy pressure), tighter stop-loss / take-profit, and logs entry details per trade for analysis.
-
-## Roadmap
-- [x] Stage A – scanner + safety checks
-- [x] Stage B – paper trading + reports
-- [ ] Stage C – live trading via Jupiter (only after paper results are positive; separate wallet, small funds, hard limits)
+## History
+- v1–v2: Solana meme coin bot. Paper result: −52% in the first day. Retired (code is in git history).
+- v3: this futures bot.
