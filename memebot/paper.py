@@ -12,7 +12,11 @@ DATA_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__
 STATE_FILE = os.path.join(DATA_DIR, "paper_state.json")
 TRADES_FILE = os.path.join(DATA_DIR, "trades.csv")
 TRADE_FIELDS = ["closed_at", "symbol", "address", "entry_price", "exit_price", "cost_usd",
-                "proceeds_usd", "pnl_usd", "pnl_pct", "hold_hours", "reason", "entry_score", "url"]
+                "proceeds_usd", "pnl_usd", "pnl_pct", "hold_hours", "reason", "entry_score",
+                "max_gain_pct", "entry_liq", "entry_mcap", "entry_age_h", "entry_chg5m", "entry_chg1h",
+                "entry_buy_sell", "entry_rug", "url"]
+ENTRY_KEYS = {"entry_liq": "liquidity", "entry_mcap": "mcap", "entry_age_h": "age_h", "entry_chg5m": "chg5m",
+              "entry_chg1h": "chg1h", "entry_rug": "rug_score"}
 
 
 def now():
@@ -41,6 +45,12 @@ def save_state(s):
 
 def log_trade(row):
     os.makedirs(DATA_DIR, exist_ok=True)
+    if os.path.exists(TRADES_FILE):
+        with open(TRADES_FILE, encoding="utf-8") as f:
+            header = f.readline().strip().split(",")
+        if header != TRADE_FIELDS:  # old v1 file: keep it, start a new one
+            old = os.path.join(DATA_DIR, "trades_v1.csv")
+            os.replace(TRADES_FILE, old if not os.path.exists(old) else TRADES_FILE + f".{int(now())}.old")
     new = not os.path.exists(TRADES_FILE)
     with open(TRADES_FILE, "a", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=TRADE_FIELDS)
@@ -58,7 +68,9 @@ def buy(s, m):
     s["positions"][m["address"]] = {
         "symbol": m["symbol"], "qty": qty, "entry_price": fill, "cost": cost,
         "peak_price": fill, "opened": now(), "score": m["score"], "url": m["url"],
+        "entry": {k: m.get(v) for k, v in ENTRY_KEYS.items()},
     }
+    s["positions"][m["address"]]["entry"]["entry_buy_sell"] = round(m.get("buys1h", 0) / max(m.get("sells1h", 0), 1), 2)
     s["last_bought"][m["address"]] = now()
     print(f"  BUY  {m['symbol']:<10} ${cost:.2f} @ {fill:.8g}  (score {m['score']})")
 
@@ -78,6 +90,8 @@ def sell(s, addr, price, reason):
         "exit_price": f"{fill:.10g}", "cost_usd": f"{p['cost']:.2f}", "proceeds_usd": f"{proceeds:.2f}",
         "pnl_usd": f"{pnl:.2f}", "pnl_pct": f"{pnl / p['cost'] * 100:.1f}", "hold_hours": f"{hold:.2f}",
         "reason": reason, "entry_score": p["score"], "url": p["url"],
+        "max_gain_pct": f"{(p['peak_price'] / p['entry_price'] - 1) * 100:.1f}",
+        **{k: (f"{v:.2f}" if isinstance(v, float) else v) for k, v in (p.get("entry") or {}).items()},
     })
     print(f"  SELL {p['symbol']:<10} {reason:<14} P&L ${pnl:+.2f} ({pnl / p['cost'] * 100:+.1f}%)")
 
@@ -139,27 +153,35 @@ def check_entries(s):
 
 
 def portfolio_value(s):
-    return s["cash"] + sum(p["qty"] * p.get("last_price", p["entry_price"]) for p in s["positions"].values())
+    """Estimated value if everything were sold now (includes selling costs)."""
+    k = (1 - C.SLIPPAGE_PCT / 100) * (1 - C.SWAP_FEE_PCT / 100)
+    return s["cash"] + sum(p["qty"] * p.get("last_price", p["entry_price"]) * k - C.NETWORK_FEE_USD
+                           for p in s["positions"].values())
 
 
 def run(once=False):
     s = load_state()
     print(f"Paper trading started. Cash ${s['cash']:.2f}, {len(s['positions'])} open positions.")
     print("Press Ctrl+C to stop (state is saved).\n")
+    last_scan = 0.0
     try:
         while True:
-            print(f"[{datetime.now().strftime('%H:%M:%S')}] checking market...")
+            scan_now = once or now() - last_scan >= C.POLL_SECONDS
             try:
-                check_exits(s)
-                check_entries(s)
+                check_exits(s)  # fast: only prices of coins we hold
+                if scan_now:
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] checking market...")
+                    check_entries(s)
+                    last_scan = now()
             except Exception as e:
                 print(f"  [error] {e} - will retry next cycle")
             save_state(s)
-            print(f"  Portfolio ~${portfolio_value(s):.2f} (cash ${s['cash']:.2f}, "
-                  f"{len(s['positions'])} open, today P&L ${s['daily_pnl'].get(today(), 0):+.2f})")
+            if scan_now:
+                print(f"  Portfolio ~${portfolio_value(s):.2f} (cash ${s['cash']:.2f}, "
+                      f"{len(s['positions'])} open, today P&L ${s['daily_pnl'].get(today(), 0):+.2f})")
             if once:
                 break
-            time.sleep(C.POLL_SECONDS)
+            time.sleep(C.EXIT_CHECK_SECONDS)
     except KeyboardInterrupt:
         save_state(s)
         print("\nStopped. State saved.")

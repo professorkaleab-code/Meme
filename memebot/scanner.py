@@ -47,6 +47,7 @@ def basic_filter(m):
     ratio = m["buys1h"] / max(m["sells1h"], 1)
     if ratio < C.MIN_BUY_SELL_RATIO_1H: why.append(f"buy/sell {ratio:.2f}")
     if not (C.MIN_PRICE_CHANGE_1H_PCT <= m["chg1h"] <= C.MAX_PRICE_CHANGE_1H_PCT): why.append(f"1h {m['chg1h']:+.0f}%")
+    if m["chg5m"] < C.MIN_PRICE_CHANGE_5M_PCT: why.append(f"5m {m['chg5m']:+.1f}%")
     return why
 
 

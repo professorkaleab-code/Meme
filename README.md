@@ -46,6 +46,12 @@ Trades are saved in `data\trades.csv` — open it in Excel, or share it with Cla
 Everything is in **`config.py`**: trade size ($20), starting balance ($100), max 3 open positions,
 $40 daily loss limit, +50% take profit, −25% stop loss, trailing stop, 6h max hold, and all filter thresholds.
 
+## Results log
+- **v1 (first day):** 30 trades, 37% win rate, **−$51.88 (−52%)**. Losses were bigger than wins, stop-losses
+  filled at −27% to −35% (and one −97%) because prices were only checked every 60s, and many buys chased coins that had already pumped.
+- **v2:** checks held coins every 15s, stricter entry filters (no chasing pumps, more liquidity, older coins,
+  stronger buy pressure), tighter stop-loss / take-profit, and logs entry details per trade for analysis.
+
 ## Roadmap
 - [x] Stage A – scanner + safety checks
 - [x] Stage B – paper trading + reports
